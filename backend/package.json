@@ -1,0 +1,38 @@
+{
+  "name": "film-recycle-backend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "nest build",
+    "dev": "cross-env DATABASE_URL=file:./dev.db nest start --watch",
+    "start:prod": "cross-env DATABASE_URL=file:./dev.db node dist/main.js",
+    "prisma:push": "prisma db push",
+    "prisma:generate": "prisma generate",
+    "seed": "cross-env DATABASE_URL=file:./dev.db tsx prisma/seed.ts",
+    "db:examples": "node -e \"require('fs').rmSync('prisma/examples.db',{force:true})\" && cross-env DATABASE_URL=file:./examples.db prisma db push",
+    "examples": "npm run db:examples && cross-env DATABASE_URL=file:./examples.db tsx src/examples/runner.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/jwt": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "@prisma/client": "^6.2.0",
+    "bcryptjs": "^2.4.3",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.0",
+    "@nestjs/schematics": "^11.0.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.0",
+    "cross-env": "^7.0.3",
+    "prisma": "^6.2.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

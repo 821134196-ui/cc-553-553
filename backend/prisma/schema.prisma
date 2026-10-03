@@ -1,0 +1,159 @@
+// 农膜回收称重与补贴系统 —— SQLite 数据模型
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// 系统用户：种植户 / 收料员 / 审核人员 / 管理员
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  name         String
+  // FARMER | COLLECTOR | REVIEWER | ADMIN
+  role         String
+  phone        String?
+  createdAt    DateTime @default(now())
+
+  plots           Plot[]
+  recordsAsFarmer WeighRecord[]
+  collected       WeighRecord[]      @relation("Collector")
+  sorted          WeighRecord[]      @relation("Sorter")
+  reviewed        WeighRecord[]      @relation("Reviewer")
+  corrections     WeightCorrection[]
+  paymentsMade    Payment[]          @relation("PaymentOperator")
+  paymentsReceived Payment[]         @relation("PaymentFarmer")
+}
+
+/// 地块：补贴数量受面积上限约束
+model Plot {
+  id       Int     @id @default(autoincrement())
+  code     String  @unique
+  name     String
+  areaMu   Float // 面积（亩）
+  crop     String? // 种植作物
+  farmerId Int
+  farmer   User    @relation(fields: [farmerId], references: [id])
+
+  records WeighRecord[]
+}
+
+/// 补贴当期：全期总额度 + 每亩面积折算上限 + 统一收购价
+model SubsidyPeriod {
+  id            Int      @id @default(autoincrement())
+  code          String   @unique
+  name          String
+  startAt       String
+  endAt         String
+  totalQuotaYuan Float // 当期补贴总额度（元）
+  usedQuotaYuan  Float   @default(0) // 已核定占用额度（元）
+  perMuCapKg    Float // 每亩合格农膜上限（kg/亩）
+  pricePerKg    Float // 补贴单价（元/kg）
+  active        Boolean @default(true)
+
+  records  WeighRecord[]
+  payments Payment[]
+}
+
+/// 过磅单据（一张票据贯穿 过磅→分拣→审核→兑付）
+model WeighRecord {
+  id       Int    @id @default(autoincrement())
+  ticketNo String @unique
+  // 客户端幂等键：重复提交返回原单据，不重复计量
+  clientTicketNo String? @unique
+
+  periodId Int
+  period   SubsidyPeriod @relation(fields: [periodId], references: [id])
+  farmerId Int
+  farmer   User          @relation(fields: [farmerId], references: [id])
+  plotId   Int
+  plot     Plot          @relation(fields: [plotId], references: [id])
+
+  filmType String // 膜种类：PE / PVC / EVA / PO
+  // 毛重（带泥土杂物）、皮重（包装物）、过磅净重 = 毛重 - 皮重
+  grossWeightKg Float
+  tareWeightKg  Float
+  netWeightKg   Float
+  // 分拣后补充：实测净重与质量等级
+  sortedNetWeightKg Float?
+  // A | B | C | REJECT
+  grade             String?
+  qualityNote       String?
+
+  // PENDING（待分拣） | SORTED（待审核） | APPROVED（审核通过） | REJECTED（驳回）
+  status           String  @default("PENDING")
+  rejectReason     String? // SOIL_CONTAMINATION | DUPLICATE_FILM | OTHER
+  suspectedDuplicate Boolean @default(false)
+  duplicateOfId    Int?
+  duplicateOf      WeighRecord? @relation("DuplicateLink", fields: [duplicateOfId], references: [id])
+  duplicates       WeighRecord[] @relation("DuplicateLink")
+
+  collectorId Int
+  collector   User @relation("Collector", fields: [collectorId], references: [id])
+  sortedById  Int?
+  sortedBy    User? @relation("Sorter", fields: [sortedById], references: [id])
+  reviewedById Int?
+  reviewedBy   User? @relation("Reviewer", fields: [reviewedById], references: [id])
+
+  // 审核通过后核定：经等级折算、面积上限、当期额度三重约束后的最终补贴量/金额
+  approvedSubsidyKg Float @default(0)
+  subsidyYuan       Float @default(0)
+  cappedByPlot      Boolean @default(false) // 被地块面积上限截断
+  cappedByPeriod    Boolean @default(false) // 被当期额度截断
+  isPaid            Boolean @default(false)
+
+  createdAt   DateTime  @default(now())
+  sortedAt    DateTime?
+  reviewedAt  DateTime?
+
+  corrections WeightCorrection[]
+  payment     Payment?
+}
+
+/// 称重修正留痕：原值、新值、原因、复核人
+model WeightCorrection {
+  id        Int      @id @default(autoincrement())
+  recordId  Int
+  record    WeighRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  // GROSS_WEIGHT | TARE_WEIGHT | SORTED_NET_WEIGHT | GRADE
+  field     String
+  oldValue  String?
+  newValue  String?
+  reason    String
+  reviewerId Int
+  reviewer  User     @relation(fields: [reviewerId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+/// 兑付记录：一票一兑付（recordId 唯一），回执号唯一，天然防重复兑付
+model Payment {
+  id              Int      @id @default(autoincrement())
+  recordId        Int      @unique
+  record          WeighRecord @relation(fields: [recordId], references: [id])
+  farmerId        Int
+  farmer          User     @relation("PaymentFarmer", fields: [farmerId], references: [id])
+  periodId        Int
+  period          SubsidyPeriod @relation(fields: [periodId], references: [id])
+  amountKg        Float
+  amountYuan      Float
+  receiptNo       String   @unique // 本地模拟的兑付回执号
+  idempotencyKey  String   @unique
+  paidBy          Int
+  operator        User     @relation("PaymentOperator", fields: [paidBy], references: [id])
+  paidAt          DateTime @default(now())
+}
+
+/// 地磅读数留痕（本地模拟设备）
+model ScaleReading {
+  id        Int      @id @default(autoincrement())
+  ticketNo  String
+  grossKg   Float
+  tareKg    Float
+  stable    Boolean
+  deviceId  String
+  createdAt DateTime @default(now())
+}
