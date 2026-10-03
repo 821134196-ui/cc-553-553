@@ -1,0 +1,145 @@
+// 农场废旧农膜回收称重与补贴资格系统
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  name         String
+  // ADMIN 管理员 / COLLECTOR 收料员 / REVIEWER 审核人员 / FARMER 种植户
+  role         String
+  phone        String?
+  createdAt    DateTime @default(now())
+
+  plots         Plot[]          @relation("PlotFarmer")
+  tickets       Ticket[]        @relation("TicketFarmer")
+  collected     Ticket[]        @relation("TicketCollector")
+  reviewed      Ticket[]        @relation("TicketReviewer")
+  corrections   WeightCorrection[]
+  payouts       Payout[]        @relation("PayoutCreator")
+  farmerPayouts Payout[]        @relation("PayoutFarmer")
+}
+
+model Plot {
+  id       Int     @id @default(autoincrement())
+  code     String  @unique
+  name     String
+  areaMu   Float // 地块面积（亩）
+  farmerId Int
+  farmer   User    @relation("PlotFarmer", fields: [farmerId], references: [id])
+  tickets  Ticket[]
+  payoutLines PayoutLine[]
+  createdAt DateTime @default(now())
+}
+
+model SubsidyPeriod {
+  id           Int      @id @default(autoincrement())
+  code         String   @unique // 期次编号，如 2026-Q3
+  name         String
+  ratePerKg    Float // 补贴单价（元/kg）
+  kgPerMu      Float // 每亩面积上限（kg/亩）
+  totalQuotaKg Float // 当期总额度（kg）
+  active       Boolean @default(true)
+  startDate    String
+  endDate      String
+  createdAt    DateTime @default(now())
+
+  tickets Ticket[]
+  payouts Payout[]
+}
+
+model Ticket {
+  id        Int    @id @default(autoincrement())
+  ticketNo  String @unique
+  periodId  Int
+  period    SubsidyPeriod @relation(fields: [periodId], references: [id])
+  farmerId  Int
+  farmer    User   @relation("TicketFarmer", fields: [farmerId], references: [id])
+  plotId    Int
+  plot      Plot   @relation(fields: [plotId], references: [id])
+  filmType  String // MULCH 地膜 / SHED 棚膜
+  batchCode String? // 批次标记，同批膜重复过磅检测用
+
+  // 过磅原始读数（毛重、皮重），修正只追加更正记录，不覆盖历史
+  grossWeight Float
+  tareWeight  Float
+  // 分拣后补充
+  netWeight     Float?
+  qualityGrade  String? // A / B / REJECT
+  dirtRate      Float? // 泥土夹杂比例 0~1
+  // PENDING_SORTING 待分拣 / PENDING_REVIEW 待审核 / APPROVED 审核通过 / REJECTED 驳回
+  status        String  @default("PENDING_SORTING")
+
+  collectorId Int
+  collector   User    @relation("TicketCollector", fields: [collectorId], references: [id])
+  reviewerId  Int?
+  reviewer    User?   @relation("TicketReviewer", fields: [reviewerId], references: [id])
+
+  rejectReason   String?
+  duplicateOfId  Int?
+  duplicateOf    Ticket? @relation("DuplicateLink", fields: [duplicateOfId], references: [id])
+  duplicates     Ticket[] @relation("DuplicateLink")
+
+  eligibleWeight Float  @default(0) // 审核确认、可进入补贴清单的数量（受面积/额度上限裁剪）
+  capNote        String?
+  paidWeight     Float  @default(0) // 已进入兑付回执的数量
+  reviewedAt     DateTime?
+
+  corrections WeightCorrection[]
+  payoutLines PayoutLine[]
+
+  createdAt DateTime @default(now())
+
+  @@index([periodId, farmerId, plotId])
+  @@index([status])
+}
+
+model WeightCorrection {
+  id        Int      @id @default(autoincrement())
+  ticketId  Int
+  ticket    Ticket   @relation(fields: [ticketId], references: [id])
+  fieldName String // GROSS / TARE / NET
+  oldValue  Float
+  newValue  Float
+  reason    String
+  reviewerId Int
+  reviewer   User   @relation(fields: [reviewerId], references: [id])
+  createdAt  DateTime @default(now())
+}
+
+model Payout {
+  id             Int      @id @default(autoincrement())
+  receiptNo      String   @unique // 本地模拟的兑付回执编号
+  periodId       Int
+  period         SubsidyPeriod @relation(fields: [periodId], references: [id])
+  farmerId       Int
+  farmer         User     @relation("PayoutFarmer", fields: [farmerId], references: [id])
+  totalWeight    Float
+  amount         Float
+  idempotencyKey String   @unique // 重复提交兑付返回同一张回执，不重复加钱
+  createdById    Int
+  createdBy      User     @relation("PayoutCreator", fields: [createdById], references: [id])
+  lines          PayoutLine[]
+  createdAt      DateTime @default(now())
+
+  @@unique([periodId, farmerId])
+}
+
+model PayoutLine {
+  id       Int @id @default(autoincrement())
+  payoutId Int
+  payout   Payout @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+  ticketId Int
+  ticket   Ticket @relation(fields: [ticketId], references: [id])
+  plotId   Int
+  plot     Plot   @relation(fields: [plotId], references: [id])
+  weight   Float
+  amount   Float
+}

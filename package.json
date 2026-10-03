@@ -1,0 +1,15 @@
+{
+  "name": "farm-film-subsidy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "农场废旧农膜回收称重与补贴资格系统",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "start": "bash start.sh",
+    "dev:backend": "npm run dev -w backend",
+    "dev:frontend": "npm run dev -w frontend"
+  }
+}

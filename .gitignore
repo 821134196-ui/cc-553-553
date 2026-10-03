@@ -13,3 +13,7 @@ build/
 轨迹/
 录屏/
 视频/
+
+# SQLite 本地数据库（由 start.sh 自动生成）
+backend/prisma/dev.db
+backend/prisma/dev.db-journal
